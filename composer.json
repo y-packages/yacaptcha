@@ -1,0 +1,33 @@
+{
+    "name": "yaknet/yacaptcha",
+    "description": "Official PHP SDK for YakNet yaCaptcha (Altcha-based) integration.",
+    "type": "library",
+    "license": "MIT",
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "authors": [
+        {
+            "name": "YakNet Bilişim",
+            "email": "info@yakhub.com.tr"
+        }
+    ],
+    "require": {
+        "php": "^8.2",
+        "ext-curl": "*",
+        "ext-json": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5",
+        "phpstan/phpstan": "^1.10"
+    },
+    "autoload": {
+        "psr-4": {
+            "YakNet\\YaCaptcha\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "YakNet\\YaCaptcha\\Tests\\": "tests/"
+        }
+    }
+}
