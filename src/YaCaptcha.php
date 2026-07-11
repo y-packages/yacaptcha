@@ -90,9 +90,10 @@ class YaCaptcha
      *
      * @param string $challengeUrl Opsiyonel özel challenge adresi. Boş bırakılırsa baseUrl üzerinden otomatik oluşturulur.
      * @param array<string, string|int|bool> $attributes Widget elementine eklenecek ek HTML öznitelikleri.
-     * @return string `<altcha-widget>` HTML kodu.
+     * @param string $tagName Kullanılacak HTML etiket adı (Örn: yacaptcha-widget veya altcha-widget).
+     * @return string HTML kodu.
      */
-    public function getWidgetHtml(string $challengeUrl = '', array $attributes = []): string
+    public function getWidgetHtml(string $challengeUrl = '', array $attributes = [], string $tagName = 'yacaptcha-widget'): string
     {
         if (empty($challengeUrl)) {
             $challengeUrl = $this->baseUrl . '/api/yacaptcha/challenge?client_id=' . urlencode($this->clientId);
@@ -113,16 +114,17 @@ class YaCaptcha
             $htmlAttributes[] = htmlspecialchars($key) . '="' . htmlspecialchars($valStr) . '"';
         }
 
-        return '<altcha-widget ' . implode(' ', $htmlAttributes) . '></altcha-widget>';
+        $cleanTagName = htmlspecialchars($tagName);
+        return '<' . $cleanTagName . ' ' . implode(' ', $htmlAttributes) . '></' . $cleanTagName . '>';
     }
 
     /**
-     * Altcha widget'ı için gerekli olan JavaScript dosyasını (CDN) döndüren script etiketini üretir.
+     * Altcha widget'ı için gerekli olan JavaScript dosyasını döndüren script etiketini üretir.
      *
-     * @param string $cdnUrl Altcha JavaScript dosyasının CDN adresi.
+     * @param string $cdnUrl JavaScript dosyasının adresi.
      * @return string `<script>` etiketi.
      */
-    public function getScriptTag(string $cdnUrl = 'https://cdnjs.yakhub.com.tr/altcha/altcha.min.js'): string
+    public function getScriptTag(string $cdnUrl = 'https://auth.yakhub.com.tr/js/yacaptcha.js'): string
     {
         return '<script type="module" src="' . htmlspecialchars($cdnUrl) . '" defer></script>';
     }
