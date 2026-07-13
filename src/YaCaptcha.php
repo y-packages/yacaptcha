@@ -95,8 +95,17 @@ class YaCaptcha
      */
     public function getWidgetHtml(string $challengeUrl = '', array $attributes = [], string $tagName = 'yacaptcha-widget'): string
     {
+        $maxNumber = null;
+        if (isset($attributes['max_number'])) {
+            $maxNumber = (int) $attributes['max_number'];
+            unset($attributes['max_number']);
+        }
+
         if (empty($challengeUrl)) {
             $challengeUrl = $this->baseUrl . '/api/yacaptcha/challenge?client_id=' . urlencode($this->clientId);
+            if ($maxNumber !== null) {
+                $challengeUrl .= '&max_number=' . $maxNumber;
+            }
         }
 
         /** @var array<string, string|int|bool> $defaultAttributes */
