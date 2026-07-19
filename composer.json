@@ -1,10 +1,19 @@
 {
     "name": "yaknet/yacaptcha",
     "description": "Official PHP SDK for YakNet yaCaptcha (Altcha-based) integration.",
+    "version": "1.0.3",
     "type": "library",
     "license": "MIT",
     "minimum-stability": "stable",
     "prefer-stable": true,
+    "keywords": [
+        "captcha",
+        "yacaptcha",
+        "yaknet",
+        "altcha",
+        "bot-protection",
+        "security"
+    ],
     "authors": [
         {
             "name": "YakNet Bilişim",

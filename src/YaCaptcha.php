@@ -56,19 +56,34 @@ class YaCaptcha
             return false;
         }
 
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $postData);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Content-Type: application/json',
-            'Accept: application/json',
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $postData,
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'Accept: application/json',
+            ],
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT        => 12,
+            CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
         ]);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
 
         /** @var string|bool $response */
         $response = curl_exec($ch);
         /** @var int $httpCode */
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+        if ($response === false || $httpCode !== 200) {
+            // SSL sertifika sorunu ihtimaline karşı yedek cURL denemesi
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        }
+
         curl_close($ch);
 
         if ($response === false || $httpCode !== 200) {
