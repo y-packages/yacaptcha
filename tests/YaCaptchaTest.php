@@ -84,4 +84,25 @@ class YaCaptchaTest extends TestCase
 
         $this->assertFalse($client->verify('invalid-payload'));
     }
+
+    public function testInspectWafWithMockResponse(): void
+    {
+        $client = new YaCaptcha('client-123', 'secret-abc');
+        $client->setMockResponse(['action' => 'challenge', 'threat_score' => 60]);
+
+        $res = $client->inspectWaf();
+        $this->assertEquals('challenge', $res['action']);
+        $this->assertEquals(60, $res['threat_score']);
+    }
+
+    public function testRenderCloudflareChallengePage(): void
+    {
+        $client = new YaCaptcha('client-123', 'secret-abc');
+        $html = $client->renderCloudflareChallengePage('Test Servis', '/target-url');
+
+        $this->assertStringContainsString('<!DOCTYPE html>', $html);
+        $this->assertStringContainsString('Güvenlik Kontrolü | Test Servis', $html);
+        $this->assertStringContainsString('action="/target-url"', $html);
+        $this->assertStringContainsString('<yacaptcha-widget', $html);
+    }
 }

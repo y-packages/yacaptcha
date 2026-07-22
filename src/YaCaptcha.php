@@ -154,6 +154,261 @@ class YaCaptcha
     }
 
     /**
+     * WAF isteğini YakNet Auth WAF servisi üzerinden denetler.
+     *
+     * @param array<string, mixed> $customParams Opsiyonel özel denetim parametreleri.
+     * @return array<string, mixed> WAF denetim sonucu (action, threat_score, detected_threats vb.)
+     */
+    public function inspectWaf(array $customParams = []): array
+    {
+        if ($this->mockResponse !== null) {
+            return $this->mockResponse;
+        }
+
+        $url = $this->baseUrl . '/api/yacaptcha/waf-check';
+
+        $rawIp = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $ip = is_string($rawIp) ? $rawIp : '0.0.0.0';
+        if (str_contains($ip, ',')) {
+            $ip = trim(explode(',', $ip)[0]);
+        }
+
+        $userAgent = is_string($_SERVER['HTTP_USER_AGENT'] ?? null) ? $_SERVER['HTTP_USER_AGENT'] : '';
+        $uri = is_string($_SERVER['REQUEST_URI'] ?? null) ? $_SERVER['REQUEST_URI'] : '';
+        $method = is_string($_SERVER['REQUEST_METHOD'] ?? null) ? $_SERVER['REQUEST_METHOD'] : 'GET';
+
+        $params = array_merge([
+            'client_id'     => $this->clientId,
+            'client_secret' => $this->clientSecret,
+            'ip'            => $ip,
+            'user_agent'    => $userAgent,
+            'uri'           => $uri,
+            'method'        => $method,
+            'params'        => array_merge($_GET, $_POST),
+        ], $customParams);
+
+        $postData = json_encode($params);
+        if ($postData === false) {
+            return ['action' => 'allow', 'threat_score' => 0, 'detected_threats' => []];
+        }
+
+        $ch = curl_init($url);
+        if ($ch === false) {
+            return ['action' => 'allow', 'threat_score' => 0, 'detected_threats' => []];
+        }
+
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $postData,
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'Accept: application/json',
+            ],
+            CURLOPT_CONNECTTIMEOUT => 3,
+            CURLOPT_TIMEOUT        => 5,
+            CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => 0,
+        ]);
+
+        /** @var string|bool $response */
+        $response = curl_exec($ch);
+        curl_close($ch);
+
+        if (!is_string($response)) {
+            return ['action' => 'allow', 'threat_score' => 0, 'detected_threats' => []];
+        }
+
+        /** @var array<string, mixed>|null $data */
+        $data = json_decode($response, true);
+        if (!is_array($data)) {
+            return ['action' => 'allow', 'threat_score' => 0, 'detected_threats' => []];
+        }
+
+        return $data;
+    }
+
+    /**
+     * Cloudflare Turnstile tarzı tam sayfa Güvenlik Kontrolü (Challenge) HTML şablonunu üretir.
+     *
+     * @param string $siteName Site/Servis başlığı
+     * @param string $targetUrl Başarılı doğrulama sonrası yönlendirilecek hedef adres
+     * @return string Full-page HTML
+     */
+    public function renderCloudflareChallengePage(string $siteName = 'YakNet Güvenlik Koruması', string $targetUrl = ''): string
+    {
+        if (empty($targetUrl)) {
+            $rawUri = $_SERVER['REQUEST_URI'] ?? '/';
+            $targetUrl = is_string($rawUri) ? $rawUri : '/';
+        }
+
+        $rayId = strtoupper(bin2hex(random_bytes(8)));
+        $rawIp = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $clientIp = htmlspecialchars(is_string($rawIp) ? $rawIp : '0.0.0.0');
+        $cleanSiteName = htmlspecialchars($siteName);
+        $cleanTargetUrl = htmlspecialchars($targetUrl);
+
+        $widgetHtml = $this->getWidgetHtml('', ['auto' => 'onload', 'name' => 'yak_captcha_payload']);
+        $scriptTag = $this->getScriptTag();
+
+        return <<<HTML
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Güvenlik Kontrolü | {$cleanSiteName}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    {$scriptTag}
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: #0b0f19;
+            color: #f3f4f6;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            overflow-x: hidden;
+            position: relative;
+        }
+        body::before {
+            content: '';
+            position: absolute;
+            top: -150px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(168, 85, 247, 0.15) 0%, rgba(11, 15, 25, 0) 70%);
+            pointer-events: none;
+        }
+        .challenge-card {
+            width: 100%;
+            max-width: 480px;
+            background: rgba(17, 24, 39, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 20px;
+            padding: 36px 32px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            text-align: center;
+            position: relative;
+            z-index: 10;
+        }
+        .brand-header {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 24px;
+        }
+        .brand-icon-shield {
+            width: 42px;
+            height: 42px;
+            background: linear-gradient(135deg, #9333ea 0%, #a855f7 100%);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.4);
+        }
+        .brand-icon-shield svg {
+            width: 22px;
+            height: 22px;
+            stroke: #fff;
+            fill: none;
+            stroke-width: 2.2;
+        }
+        .brand-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #ffffff;
+            letter-spacing: -0.5px;
+        }
+        .challenge-title {
+            font-size: 17px;
+            font-weight: 600;
+            color: #e5e7eb;
+            margin-bottom: 8px;
+        }
+        .challenge-subtitle {
+            font-size: 13.5px;
+            color: #9ca3af;
+            line-height: 1.5;
+            margin-bottom: 28px;
+        }
+        .widget-wrapper {
+            margin-bottom: 28px;
+            text-align: left;
+        }
+        .footer-info {
+            font-size: 11.5px;
+            color: #6b7280;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            padding-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .footer-info span { color: #9ca3af; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <div class="challenge-card">
+        <div class="brand-header">
+            <div class="brand-icon-shield">
+                <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+            </div>
+            <div class="brand-title">YakNet WAF</div>
+        </div>
+
+        <h1 class="challenge-title">Güvenlik Kontrolü Yapılıyor</h1>
+        <p class="challenge-subtitle">Sayfaya erişmeden önce bağlantı güvenliğiniz ve tarayıcınız doğrulanıyor. Lütfen bekleyin...</p>
+
+        <form id="challenge-form" method="POST" action="{$cleanTargetUrl}">
+            <div class="widget-wrapper">
+                {$widgetHtml}
+            </div>
+        </form>
+
+        <div class="footer-info">
+            <div>İstemci IP: <span>{$clientIp}</span></div>
+            <div>Ray ID: <span>{$rayId}</span></div>
+            <div style="margin-top: 4px;">Protected by <strong>YakNet WAF & yaCAPTCHA</strong></div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const widget = document.querySelector('yacaptcha-widget');
+            if (widget) {
+                widget.addEventListener('statechange', function(e) {
+                    if (e.detail && e.detail.state === 'verified' && e.detail.payload) {
+                        setTimeout(function() {
+                            const form = document.getElementById('challenge-form');
+                            if (form && typeof form.submit === 'function') {
+                                form.submit();
+                            }
+                        }, 500);
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>
+HTML;
+    }
+
+    /**
      * Testler için mock yanıtı ayarlar.
      *
      * @param array<string, mixed> $response
