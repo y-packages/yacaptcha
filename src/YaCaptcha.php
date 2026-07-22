@@ -231,12 +231,13 @@ class YaCaptcha
 
     /**
      * Cloudflare Turnstile tarzı tam sayfa Güvenlik Kontrolü (Challenge) HTML şablonunu üretir.
+     * Brand bilgileri (YakNet WAF & yaCAPTCHA) sabittir ve değiştirilemez.
      *
-     * @param string $siteName Site/Servis başlığı
+     * @param string $siteName Korunan Hedef Site/Servis başlığı (Örn: Yamail Webmail)
      * @param string $targetUrl Başarılı doğrulama sonrası yönlendirilecek hedef adres
      * @return string Full-page HTML
      */
-    public function renderCloudflareChallengePage(string $siteName = 'YakNet Güvenlik Koruması', string $targetUrl = ''): string
+    public function renderCloudflareChallengePage(string $siteName = 'Korunan Web Sitesi', string $targetUrl = ''): string
     {
         if (empty($targetUrl)) {
             $rawUri = $_SERVER['REQUEST_URI'] ?? '/';
@@ -359,6 +360,8 @@ class YaCaptcha
             gap: 6px;
         }
         .footer-info span { color: #9ca3af; font-family: monospace; }
+        .footer-brand { color: #a855f7; text-decoration: none; font-weight: 700; }
+        .footer-brand:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
@@ -371,7 +374,7 @@ class YaCaptcha
         </div>
 
         <h1 class="challenge-title">Güvenlik Kontrolü Yapılıyor</h1>
-        <p class="challenge-subtitle">Sayfaya erişmeden önce bağlantı güvenliğiniz ve tarayıcınız doğrulanıyor. Lütfen bekleyin...</p>
+        <p class="challenge-subtitle">{$cleanSiteName} adresine erişmeden önce bağlantı güvenliğiniz ve tarayıcınız YakNet WAF tarafından doğrulanıyor. Lütfen bekleyin...</p>
 
         <form id="challenge-form" method="POST" action="{$cleanTargetUrl}">
             <div class="widget-wrapper">
@@ -382,7 +385,7 @@ class YaCaptcha
         <div class="footer-info">
             <div>İstemci IP: <span>{$clientIp}</span></div>
             <div>Ray ID: <span>{$rayId}</span></div>
-            <div style="margin-top: 4px;">Protected by <strong>YakNet WAF & yaCAPTCHA</strong></div>
+            <div style="margin-top: 4px;">Protected by <a href="https://yakhub.com.tr" target="_blank" class="footer-brand">YakNet WAF & yaCAPTCHA</a></div>
         </div>
     </div>
 
