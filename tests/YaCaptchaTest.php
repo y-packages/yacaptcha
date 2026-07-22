@@ -105,4 +105,13 @@ class YaCaptchaTest extends TestCase
         $this->assertStringContainsString('action="/target-url"', $html);
         $this->assertStringContainsString('<yacaptcha-widget', $html);
     }
+
+    public function testAutoProtectAllowsCleanRequest(): void
+    {
+        $client = new YaCaptcha('client-123', 'secret-abc');
+        $client->setMockResponse(['action' => 'allow', 'threat_score' => 0]);
+
+        $res = $client->autoProtect('Test Servis');
+        $this->assertEquals('allow', $res['action']);
+    }
 }

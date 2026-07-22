@@ -230,6 +230,45 @@ class YaCaptcha
     }
 
     /**
+     * WAF denetimini gerçekleştirir ve Cloud Console ayarlarınıza göre (Engelleme / Challenge) işlemleri OTOMATİK uygular.
+     * Developer uygulamasında tek satır çağrılması yeterlidir ($yaCaptcha->autoProtect()).
+     *
+     * @param string $siteName Korunan Hedef Site/Servis başlığı (Örn: Yamail Webmail)
+     * @param array<string, mixed> $customParams Opsiyonel özel denetim parametreleri.
+     * @return array<string, mixed> WAF sonucu (istek başarılı ise)
+     */
+    public function autoProtect(string $siteName = 'Korunan Web Sitesi', array $customParams = []): array
+    {
+        $wafResult = $this->inspectWaf($customParams);
+
+        if (isset($wafResult['action']) && $wafResult['action'] === 'block') {
+            if (!headers_sent()) {
+                header('HTTP/1.1 403 Forbidden');
+                header('Content-Type: text/html; charset=utf-8');
+            }
+            echo '<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8"><title>403 Forbidden | YakNet WAF</title><style>body{font-family:sans-serif;background:#0b0f19;color:#f87171;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;}.card{background:#111827;border:1px solid rgba(255,255,255,0.1);padding:40px;border-radius:16px;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,0.5);}h1{margin-top:0;}p{color:#9ca3af;}</style></head><body><div class="card"><h1>403 - Erişim Engellendi</h1><p>Şüpheli güvenlik ihlali tespit edildi. İsteğiniz YakNet WAF tarafından engellendi.</p></div></body></html>';
+            exit;
+        }
+
+        if (isset($wafResult['action']) && $wafResult['action'] === 'challenge') {
+            $rawPayload = $_POST['yak_captcha_payload'] ?? $_POST['altcha'] ?? null;
+            $payload = is_string($rawPayload) ? $rawPayload : '';
+
+            if ($payload !== '' && $this->verify($payload)) {
+                return $wafResult;
+            }
+
+            if (!headers_sent()) {
+                header('Content-Type: text/html; charset=utf-8');
+            }
+            echo $this->renderCloudflareChallengePage($siteName);
+            exit;
+        }
+
+        return $wafResult;
+    }
+
+    /**
      * Cloudflare Turnstile tarzı tam sayfa Güvenlik Kontrolü (Challenge) HTML şablonunu üretir.
      * Brand bilgileri (YakNet WAF & yaCAPTCHA) sabittir ve değiştirilemez.
      *
