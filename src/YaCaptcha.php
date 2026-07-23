@@ -246,6 +246,31 @@ class YaCaptcha
         }
         $clearanceToken = md5($this->clientId . '_' . $ip);
 
+        // Check AJAX WAF Verification request from Challenge Page
+        $isWafVerify = (isset($_SERVER['HTTP_X_YAK_WAF_VERIFY']) && $_SERVER['HTTP_X_YAK_WAF_VERIFY'] === '1') 
+            || (isset($_POST['yak_waf_verify']) && $_POST['yak_waf_verify'] === '1');
+
+        if ($isWafVerify) {
+            $rawPayload = $_POST['yak_captcha_payload'] ?? $_POST['altcha'] ?? '';
+            $payload = is_string($rawPayload) ? $rawPayload : '';
+
+            $isValid = ($payload !== '' && $this->verify($payload));
+            if ($isValid) {
+                if (!headers_sent()) {
+                    setcookie('yak_waf_clearance', $clearanceToken, time() + 7200, '/');
+                    header('Content-Type: application/json; charset=utf-8');
+                }
+                echo json_encode(['success' => true]);
+                exit;
+            } else {
+                if (!headers_sent()) {
+                    header('Content-Type: application/json; charset=utf-8', true, 400);
+                }
+                echo json_encode(['success' => false, 'error' => 'Invalid captcha payload']);
+                exit;
+            }
+        }
+
         if (isset($_COOKIE['yak_waf_clearance']) && $_COOKIE['yak_waf_clearance'] === $clearanceToken) {
             $customParams['is_cleared'] = true;
         }
@@ -455,12 +480,27 @@ class YaCaptcha
             if (widget) {
                 widget.addEventListener('statechange', function(e) {
                     if (e.detail && e.detail.state === 'verified' && e.detail.payload) {
-                        setTimeout(function() {
-                            const form = document.getElementById('challenge-form');
-                            if (form && typeof form.submit === 'function') {
-                                form.submit();
+                        fetch(window.location.href, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                                'X-Yak-Waf-Verify': '1'
+                            },
+                            body: 'yak_captcha_payload=' + encodeURIComponent(e.detail.payload) + '&yak_waf_verify=1'
+                        })
+                        .then(function(res) { return res.json(); })
+                        .then(function(data) {
+                            if (data && data.success) {
+                                window.location.reload();
+                            } else {
+                                const form = document.getElementById('challenge-form');
+                                if (form) { form.submit(); }
                             }
-                        }, 500);
+                        })
+                        .catch(function() {
+                            const form = document.getElementById('challenge-form');
+                            if (form) { form.submit(); }
+                        });
                     }
                 });
             }

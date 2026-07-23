@@ -1,7 +1,7 @@
 {
     "name": "yaknet/yacaptcha",
     "description": "Official PHP SDK for YakNet yaCaptcha (Altcha-based) & WAF integration.",
-    "version": "1.3.0",
+    "version": "1.4.0",
     "type": "library",
     "license": "MIT",
     "minimum-stability": "stable",
