@@ -261,7 +261,13 @@ class YaCaptcha
             if (!headers_sent()) {
                 header('Content-Type: text/html; charset=utf-8');
             }
-            echo $this->renderCloudflareChallengePage($siteName);
+            
+            // Prefer centrally rendered official HTML from auth.yakhub.com.tr
+            if (isset($wafResult['challenge_html']) && is_string($wafResult['challenge_html']) && $wafResult['challenge_html'] !== '') {
+                echo $wafResult['challenge_html'];
+            } else {
+                echo $this->renderCloudflareChallengePage($siteName);
+            }
             exit;
         }
 
