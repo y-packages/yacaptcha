@@ -239,6 +239,17 @@ class YaCaptcha
      */
     public function autoProtect(string $siteName = 'Korunan Web Sitesi', array $customParams = []): array
     {
+        $rawIp = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $ip = is_string($rawIp) ? $rawIp : '0.0.0.0';
+        if (str_contains($ip, ',')) {
+            $ip = trim(explode(',', $ip)[0]);
+        }
+        $clearanceToken = md5($this->clientId . '_' . $ip);
+
+        if (isset($_COOKIE['yak_waf_clearance']) && $_COOKIE['yak_waf_clearance'] === $clearanceToken) {
+            $customParams['is_cleared'] = true;
+        }
+
         $wafResult = $this->inspectWaf($customParams);
 
         if (isset($wafResult['action']) && $wafResult['action'] === 'block') {
@@ -255,6 +266,10 @@ class YaCaptcha
             $payload = is_string($rawPayload) ? $rawPayload : '';
 
             if ($payload !== '' && $this->verify($payload)) {
+                if (!headers_sent()) {
+                    setcookie('yak_waf_clearance', $clearanceToken, time() + 7200, '/');
+                }
+                $_COOKIE['yak_waf_clearance'] = $clearanceToken;
                 return $wafResult;
             }
 
