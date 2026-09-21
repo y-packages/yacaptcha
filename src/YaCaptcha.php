@@ -15,7 +15,7 @@ class YaCaptcha
      */
     private ?array $mockResponse = null;
 
-    public function __construct(string $clientId, string $clientSecret, string $baseUrl = 'https://auth.yakhub.com.tr')
+    public function __construct(string $clientId, string $clientSecret, string $baseUrl = 'https://developer-console.yakhub.com.tr')
     {
         $this->clientId = $clientId;
         $this->clientSecret = $clientSecret;
@@ -64,8 +64,8 @@ class YaCaptcha
                 'Content-Type: application/json',
                 'Accept: application/json',
             ],
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT        => 12,
+            CURLOPT_CONNECTTIMEOUT => 4,
+            CURLOPT_TIMEOUT        => 8,
             CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
@@ -84,7 +84,9 @@ class YaCaptcha
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         }
 
-        curl_close($ch);
+        if (PHP_VERSION_ID < 80500) {
+            curl_close($ch);
+        }
 
         if ($response === false || $httpCode !== 200) {
             return false;
@@ -117,9 +119,17 @@ class YaCaptcha
         }
 
         if (empty($challengeUrl)) {
-            $challengeUrl = $this->baseUrl . '/api/yacaptcha/challenge?client_id=' . urlencode($this->clientId);
-            if ($maxNumber !== null) {
-                $challengeUrl .= '&max_number=' . $maxNumber;
+            // MEB ve kurumsal güvenlik duvarı engellerini aşmak için yerel ters proxy'yi (same-origin) önceliklendir
+            if (PHP_SAPI !== 'cli') {
+                $challengeUrl = '/?yak_captcha_challenge=1';
+                if ($maxNumber !== null) {
+                    $challengeUrl .= '&max_number=' . $maxNumber;
+                }
+            } else {
+                $challengeUrl = $this->baseUrl . '/api/yacaptcha/challenge?client_id=' . urlencode($this->clientId);
+                if ($maxNumber !== null) {
+                    $challengeUrl .= '&max_number=' . $maxNumber;
+                }
             }
         }
 
@@ -145,11 +155,20 @@ class YaCaptcha
     /**
      * Altcha widget'ı için gerekli olan JavaScript dosyasını döndüren script etiketini üretir.
      *
-     * @param string $cdnUrl JavaScript dosyasının adresi.
+     * @param string $cdnUrl JavaScript dosyasının adresi. Boş bırakılırsa yerel asset kontrol edilir.
      * @return string `<script>` etiketi.
      */
-    public function getScriptTag(string $cdnUrl = 'https://auth.yakhub.com.tr/js/yacaptcha.js'): string
+    public function getScriptTag(string $cdnUrl = ''): string
     {
+        if (empty($cdnUrl)) {
+            $rawDocRoot = $_SERVER['DOCUMENT_ROOT'] ?? '';
+            $docRoot = is_string($rawDocRoot) ? $rawDocRoot : '';
+            if ($docRoot !== '' && file_exists($docRoot . '/assets/js/yacaptcha.js')) {
+                $cdnUrl = '/assets/js/yacaptcha.js';
+            } else {
+                $cdnUrl = 'https://cdnjs.yakhub.com.tr/ajax/libs/yacaptcha/yacaptcha.js';
+            }
+        }
         return '<script type="module" src="' . htmlspecialchars($cdnUrl) . '" defer></script>';
     }
 
@@ -246,6 +265,16 @@ class YaCaptcha
         }
         $clearanceToken = md5($this->clientId . '_' . $ip);
 
+        // Auto Reverse Proxy for yaCAPTCHA Challenge (MEB & Strict Firewalls Bypass)
+        if (isset($_GET['yak_captcha_challenge']) && $_GET['yak_captcha_challenge'] === '1') {
+            if (!headers_sent()) {
+                header('Content-Type: application/json; charset=utf-8');
+                header('Cache-Control: no-cache, no-store, must-revalidate');
+            }
+            echo $this->fetchChallengeJson();
+            exit;
+        }
+
         // Check AJAX WAF Verification request from Challenge Page
         $isWafVerify = (isset($_SERVER['HTTP_X_YAK_WAF_VERIFY']) && $_SERVER['HTTP_X_YAK_WAF_VERIFY'] === '1') 
             || (isset($_POST['yak_waf_verify']) && $_POST['yak_waf_verify'] === '1');
@@ -302,11 +331,11 @@ class YaCaptcha
                 header('Content-Type: text/html; charset=utf-8');
             }
             
-            // Prefer centrally rendered official HTML from auth.yakhub.com.tr
+            // Prefer centrally rendered official HTML from developer-console.yakhub.com.tr
             if (isset($wafResult['challenge_html']) && is_string($wafResult['challenge_html']) && $wafResult['challenge_html'] !== '') {
                 echo $wafResult['challenge_html'];
             } else {
-                echo $this->renderCloudflareChallengePage($siteName);
+                echo $this->renderChallengePage($siteName);
             }
             exit;
         }
@@ -315,14 +344,22 @@ class YaCaptcha
     }
 
     /**
-     * Cloudflare Turnstile tarzı tam sayfa Güvenlik Kontrolü (Challenge) HTML şablonunu üretir.
+     * @deprecated Use renderChallengePage() instead.
+     */
+    public function renderCloudflareChallengePage(string $siteName = 'Korunan Web Sitesi', string $targetUrl = ''): string
+    {
+        return $this->renderChallengePage($siteName, $targetUrl);
+    }
+
+    /**
+     * Tam sayfa Güvenlik Kontrolü (yaCAPTCHA Challenge) HTML şablonunu üretir.
      * Brand bilgileri (YakNet WAF & yaCAPTCHA) sabittir ve değiştirilemez.
      *
      * @param string $siteName Korunan Hedef Site/Servis başlığı (Örn: Yamail Webmail)
      * @param string $targetUrl Başarılı doğrulama sonrası yönlendirilecek hedef adres
      * @return string Full-page HTML
      */
-    public function renderCloudflareChallengePage(string $siteName = 'Korunan Web Sitesi', string $targetUrl = ''): string
+    public function renderChallengePage(string $siteName = 'Korunan Web Sitesi', string $targetUrl = ''): string
     {
         if (empty($targetUrl)) {
             $rawUri = $_SERVER['REQUEST_URI'] ?? '/';
@@ -409,59 +446,87 @@ class YaCaptcha
         .brand-icon-shield svg {
             width: 22px;
             height: 22px;
-            stroke: #fff;
-            fill: none;
+            stroke: #ffffff;
             stroke-width: 2.2;
+            fill: none;
         }
-        .brand-title {
+        .brand-title-text {
             font-size: 20px;
+            font-weight: 800;
+            color: #ffffff;
+            letter-spacing: -0.02em;
+        }
+        .brand-badge {
+            background: rgba(168, 85, 247, 0.2);
+            color: #c084fc;
+            border: 1px solid rgba(168, 85, 247, 0.3);
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .challenge-headline {
+            font-size: 24px;
             font-weight: 700;
             color: #ffffff;
-            letter-spacing: -0.5px;
-        }
-        .challenge-title {
-            font-size: 17px;
-            font-weight: 600;
-            color: #e5e7eb;
             margin-bottom: 8px;
+            letter-spacing: -0.03em;
         }
-        .challenge-subtitle {
-            font-size: 13.5px;
-            color: #9ca3af;
-            line-height: 1.5;
+        .challenge-subline {
+            font-size: 14px;
+            color: #94a3b8;
             margin-bottom: 28px;
+            line-height: 1.5;
         }
         .widget-wrapper {
-            margin-bottom: 28px;
-            text-align: left;
+            margin-bottom: 24px;
+            min-height: 70px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
         .footer-info {
-            font-size: 11.5px;
-            color: #6b7280;
-            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            margin-top: 24px;
             padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            font-size: 12px;
+            color: #64748b;
             display: flex;
             flex-direction: column;
-            gap: 6px;
+            gap: 4px;
         }
-        .footer-info span { color: #9ca3af; font-family: monospace; }
-        .footer-brand { color: #a855f7; text-decoration: none; font-weight: 700; }
-        .footer-brand:hover { text-decoration: underline; }
+        .footer-info span {
+            color: #94a3b8;
+            font-family: monospace;
+        }
+        .footer-brand {
+            color: #a855f7;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .footer-brand:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
     <div class="challenge-card">
         <div class="brand-header">
             <div class="brand-icon-shield">
-                <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                <svg viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
             </div>
-            <div class="brand-title">YakNet WAF</div>
+            <div class="brand-title-text">YakNet</div>
+            <span class="brand-badge">WAF</span>
         </div>
 
-        <h1 class="challenge-title">Güvenlik Kontrolü Yapılıyor</h1>
-        <p class="challenge-subtitle">{$cleanSiteName} adresine erişmeden önce bağlantı güvenliğiniz ve tarayıcınız YakNet WAF tarafından doğrulanıyor. Lütfen bekleyin...</p>
+        <h1 class="challenge-headline">Güvenlik Doğrulaması</h1>
+        <p class="challenge-subline"><strong>{$cleanSiteName}</strong> sitesine erişmeden önce lütfen bağlantınızın güvenli olduğunu doğrulayın.</p>
 
-        <form id="challenge-form" method="POST" action="{$cleanTargetUrl}">
+        <form id="challenge-form" action="{$cleanTargetUrl}" method="POST">
             <div class="widget-wrapper">
                 {$widgetHtml}
             </div>
@@ -475,40 +540,83 @@ class YaCaptcha
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const widget = document.querySelector('yacaptcha-widget');
-            if (widget) {
-                widget.addEventListener('statechange', function(e) {
-                    if (e.detail && e.detail.state === 'verified' && e.detail.payload) {
-                        fetch(window.location.href, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/x-www-form-urlencoded',
-                                'X-Yak-Waf-Verify': '1'
-                            },
-                            body: 'yak_captcha_payload=' + encodeURIComponent(e.detail.payload) + '&yak_waf_verify=1'
-                        })
-                        .then(function(res) { return res.json(); })
-                        .then(function(data) {
-                            if (data && data.success) {
-                                window.location.reload();
-                            } else {
-                                const form = document.getElementById('challenge-form');
-                                if (form) { form.submit(); }
-                            }
-                        })
-                        .catch(function() {
+    document.addEventListener('DOMContentLoaded', function() {
+        const widget = document.querySelector('yacaptcha-widget');
+        if (widget) {
+            widget.addEventListener('statechange', function(e) {
+                if (e.detail && e.detail.state === 'verified' && e.detail.payload) {
+                    fetch(window.location.href, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'X-Yak-Waf-Verify': '1'
+                        },
+                        body: 'yak_captcha_payload=' + encodeURIComponent(e.detail.payload) + '&yak_waf_verify=1'
+                    })
+                    .then(function(res) { return res.json(); })
+                    .then(function(data) {
+                        if (data && data.success) {
+                            window.location.reload();
+                        } else {
                             const form = document.getElementById('challenge-form');
                             if (form) { form.submit(); }
-                        });
-                    }
-                });
-            }
-        });
+                        }
+                    })
+                    .catch(function() {
+                        const form = document.getElementById('challenge-form');
+                        if (form) { form.submit(); }
+                    });
+                }
+            });
+        }
+    });
     </script>
 </body>
 </html>
 HTML;
+    }
+
+    /**
+     * yaCAPTCHA challenge JSON verisini merkezi sunucudan sunucu-tarafı cURL ile çeker (Ters Proxy).
+     *
+     * @param int $maxNumber Opsiyonel max_number değeri
+     * @return string JSON verisi
+     */
+    public function fetchChallengeJson(int $maxNumber = 0): string
+    {
+        $url = $this->baseUrl . '/api/yacaptcha/challenge?client_id=' . urlencode($this->clientId);
+        if ($maxNumber > 0) {
+            $url .= '&max_number=' . $maxNumber;
+        } elseif (isset($_GET['max_number']) && is_numeric($_GET['max_number'])) {
+            $url .= '&max_number=' . (int) $_GET['max_number'];
+        }
+
+        $ch = curl_init($url);
+        if ($ch === false) {
+            return json_encode(['error' => 'cURL init failed']) ?: '{}';
+        }
+
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 4,
+            CURLOPT_TIMEOUT        => 8,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => 0,
+        ]);
+
+        /** @var string|bool $response */
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+        if (PHP_VERSION_ID < 80500) {
+            curl_close($ch);
+        }
+
+        if ($response === false || $httpCode !== 200) {
+            return json_encode(['error' => 'Challenge could not be fetched from auth server']) ?: '{}';
+        }
+
+        return (string) $response;
     }
 
     /**

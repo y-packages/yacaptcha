@@ -22,17 +22,17 @@ class YaCaptchaTest extends TestCase
         $tag = $client->getScriptTag();
         
         $this->assertStringContainsString('<script type="module"', $tag);
-        $this->assertStringContainsString('src="https://auth.yakhub.com.tr/js/yacaptcha.js"', $tag);
+        $this->assertStringContainsString('src="https://cdnjs.yakhub.com.tr/ajax/libs/yacaptcha/yacaptcha.js"', $tag);
         $this->assertStringContainsString('defer></script>', $tag);
     }
 
     public function testGetWidgetHtmlDefault(): void
     {
-        $client = new YaCaptcha('client-123', 'secret-abc', 'https://auth.yakhub.com.tr');
+        $client = new YaCaptcha('client-123', 'secret-abc', 'https://developer-console.yakhub.com.tr');
         $html = $client->getWidgetHtml();
 
         $this->assertStringContainsString('<yacaptcha-widget', $html);
-        $this->assertStringContainsString('challengeurl="https://auth.yakhub.com.tr/api/yacaptcha/challenge?client_id=client-123"', $html);
+        $this->assertStringContainsString('challengeurl="https://developer-console.yakhub.com.tr/api/yacaptcha/challenge?client_id=client-123"', $html);
         $this->assertStringContainsString('auto="onload"', $html);
         $this->assertStringContainsString('hideogo="false"', $html);
         $this->assertStringContainsString('></yacaptcha-widget>', $html);
@@ -40,7 +40,7 @@ class YaCaptchaTest extends TestCase
 
     public function testGetWidgetHtmlCustom(): void
     {
-        $client = new YaCaptcha('client-123', 'secret-abc', 'https://auth.yakhub.com.tr');
+        $client = new YaCaptcha('client-123', 'secret-abc', 'https://developer-console.yakhub.com.tr');
         $html = $client->getWidgetHtml('https://custom.com/challenge', [
             'auto' => 'onfocus',
             'custom-attr' => 'value1',
@@ -55,12 +55,12 @@ class YaCaptchaTest extends TestCase
 
     public function testGetWidgetHtmlWithMaxNumber(): void
     {
-        $client = new YaCaptcha('client-123', 'secret-abc', 'https://auth.yakhub.com.tr');
+        $client = new YaCaptcha('client-123', 'secret-abc', 'https://developer-console.yakhub.com.tr');
         $html = $client->getWidgetHtml('', [
             'max_number' => 250000
         ]);
 
-        $this->assertStringContainsString('challengeurl="https://auth.yakhub.com.tr/api/yacaptcha/challenge?client_id=client-123&amp;max_number=250000"', $html);
+        $this->assertStringContainsString('challengeurl="https://developer-console.yakhub.com.tr/api/yacaptcha/challenge?client_id=client-123&amp;max_number=250000"', $html);
     }
 
     public function testVerifyReturnsFalseOnEmptyPayload(): void

@@ -1,6 +1,6 @@
 # YakNet yaCaptcha Client SDK (`yaknet/yacaptcha`)
 
-Official PHP integration SDK for the **YakNet yaCaptcha (Altcha-based) Protection Platform** (`auth.yakhub.com.tr`). This library provides a simple and secure PHP interface for displaying and verifying captchas without external dependencies like Guzzle (using native PHP cURL).
+Official PHP integration SDK for the **YakNet yaCaptcha (Altcha-based) Protection Platform** (`developer-console.yakhub.com.tr`). This library provides a simple and secure PHP interface for displaying and verifying captchas without external dependencies like Guzzle (using native PHP cURL).
 
 ---
 
@@ -31,7 +31,7 @@ Copy the `.env.example` variables to your application's `.env` file and set your
 ```bash
 YACAPTCHA_CLIENT_ID="your-client-id-here"
 YACAPTCHA_CLIENT_SECRET="your-client-secret-here"
-YACAPTCHA_BASE_URL="https://auth.yakhub.com.tr"
+YACAPTCHA_BASE_URL="https://developer-console.yakhub.com.tr"
 ```
 
 ---
@@ -49,7 +49,7 @@ use YakNet\YaCaptcha\YaCaptcha;
 $yaCaptcha = new YaCaptcha(
     getenv('YACAPTCHA_CLIENT_ID') ?: '',
     getenv('YACAPTCHA_CLIENT_SECRET') ?: '',
-    getenv('YACAPTCHA_BASE_URL') ?: 'https://auth.yakhub.com.tr'
+    getenv('YACAPTCHA_BASE_URL') ?: 'https://developer-console.yakhub.com.tr'
 );
 
 // Render the widget script tag (typically loaded in head or footer)
@@ -94,7 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $yaCaptcha = new YaCaptcha(
         getenv('YACAPTCHA_CLIENT_ID') ?: '',
         getenv('YACAPTCHA_CLIENT_SECRET') ?: '',
-        getenv('YACAPTCHA_BASE_URL') ?: 'https://auth.yakhub.com.tr'
+        getenv('YACAPTCHA_BASE_URL') ?: 'https://developer-console.yakhub.com.tr'
     );
 
     // Verify the payload with YakNet Auth server
