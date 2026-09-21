@@ -15,6 +15,13 @@ class YaCaptcha
      */
     private ?array $mockResponse = null;
 
+    private ?string $lastError = null;
+
+    public function getLastError(): ?string
+    {
+        return $this->lastError;
+    }
+
     public function __construct(string $clientId, string $clientSecret, string $baseUrl = 'https://developer-console.yakhub.com.tr')
     {
         $this->clientId = $clientId;
@@ -30,7 +37,10 @@ class YaCaptcha
      */
     public function verify(string $payload): bool
     {
+        $this->lastError = null;
+
         if (empty($payload)) {
+            $this->lastError = 'Boş payload';
             return false;
         }
 
@@ -48,47 +58,81 @@ class YaCaptcha
         ]);
 
         if ($postData === false) {
+            $this->lastError = 'JSON encode hatası';
             return false;
         }
 
-        $ch = curl_init($url);
-        if ($ch === false) {
-            return false;
+        $response = false;
+        $httpCode = 0;
+        $curlError = '';
+
+        if (function_exists('curl_init')) {
+            $ch = curl_init($url);
+            if ($ch !== false) {
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_POST           => true,
+                    CURLOPT_POSTFIELDS     => $postData,
+                    CURLOPT_HTTPHEADER     => [
+                        'Content-Type: application/json',
+                        'Accept: application/json',
+                        'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 YakNet-SDK/1.5',
+                    ],
+                    CURLOPT_CONNECTTIMEOUT => 6,
+                    CURLOPT_TIMEOUT        => 12,
+                    CURLOPT_FOLLOWLOCATION => true,
+                    CURLOPT_MAXREDIRS      => 5,
+                    CURLOPT_SSL_VERIFYPEER => false,
+                    CURLOPT_SSL_VERIFYHOST => 0,
+                ]);
+
+                $response = curl_exec($ch);
+                $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                $curlError = curl_error($ch);
+
+                if (PHP_VERSION_ID < 80500) {
+                    curl_close($ch);
+                }
+            }
         }
 
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => $postData,
-            CURLOPT_HTTPHEADER     => [
-                'Content-Type: application/json',
-                'Accept: application/json',
-            ],
-            CURLOPT_CONNECTTIMEOUT => 4,
-            CURLOPT_TIMEOUT        => 8,
-            CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_SSL_VERIFYHOST => 2,
-        ]);
+        // Fallback: cURL başarısız olursa file_get_contents ile dene
+        if (($response === false || $httpCode !== 200) && ini_get('allow_url_fopen')) {
+            $context = stream_context_create([
+                'http' => [
+                    'method'  => 'POST',
+                    'header'  => "Content-Type: application/json\r\n" .
+                                 "Accept: application/json\r\n" .
+                                 "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\r\n",
+                    'content' => $postData,
+                    'timeout' => 12,
+                    'ignore_errors' => true,
+                ],
+                'ssl' => [
+                    'verify_peer' => false,
+                    'verify_peer_name' => false,
+                ],
+            ]);
 
-        /** @var string|bool $response */
-        $response = curl_exec($ch);
-        /** @var int $httpCode */
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $fgcResponse = @file_get_contents($url, false, $context);
+            if ($fgcResponse !== false) {
+                $response = $fgcResponse;
+                /** @var array<int, string>|null $headers */
+                $headers = function_exists('http_get_last_response_headers')
+                    ? http_get_last_response_headers()
+                    : $http_response_header;
+                if (is_array($headers)) {
+                    foreach ($headers as $headerLine) {
+                        if (preg_match('/^HTTP\/\S+\s+(\d+)/', $headerLine, $matches)) {
+                            $httpCode = (int) $matches[1];
+                        }
+                    }
+                }
+            }
+        }
 
         if ($response === false || $httpCode !== 200) {
-            // SSL sertifika sorunu ihtimaline karşı yedek cURL denemesi
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        }
-
-        if (PHP_VERSION_ID < 80500) {
-            curl_close($ch);
-        }
-
-        if ($response === false || $httpCode !== 200) {
+            $this->lastError = 'API Bağlantı Hatası: HTTP ' . $httpCode . ($curlError ? ' (' . $curlError . ')' : '');
             return false;
         }
 
@@ -96,10 +140,16 @@ class YaCaptcha
         $data = json_decode((string) $response, true);
         
         if (!is_array($data)) {
+            $this->lastError = 'Geçersiz API yanıtı';
             return false;
         }
         
-        return isset($data['success']) && $data['success'] === true;
+        if (!isset($data['success']) || $data['success'] !== true) {
+            $this->lastError = isset($data['error']) && is_string($data['error']) ? $data['error'] : 'Doğrulama reddedildi';
+            return false;
+        }
+
+        return true;
     }
 
     /**
