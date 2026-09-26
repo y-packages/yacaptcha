@@ -117,15 +117,13 @@ class YaCaptcha
             $fgcResponse = @file_get_contents($url, false, $context);
             if ($fgcResponse !== false) {
                 $response = $fgcResponse;
-                /** @var array<int, string>|null $headers */
+                /** @var list<string> $headers */
                 $headers = function_exists('http_get_last_response_headers')
-                    ? http_get_last_response_headers()
-                    : $http_response_header;
-                if (is_array($headers)) {
-                    foreach ($headers as $headerLine) {
-                        if (preg_match('/^HTTP\/\S+\s+(\d+)/', $headerLine, $matches)) {
-                            $httpCode = (int) $matches[1];
-                        }
+                    ? (http_get_last_response_headers() ?? [])
+                    : ($GLOBALS['http_response_header'] ?? []);
+                foreach ($headers as $headerLine) {
+                    if (preg_match('/^HTTP\/\S+\s+(\d+)/', $headerLine, $matches)) {
+                        $httpCode = (int) $matches[1];
                     }
                 }
             }
@@ -223,6 +221,135 @@ class YaCaptcha
     }
 
     /**
+     * İstemcinin gerçek ve doğrulanmış bir arama motoru botu (Googlebot, Bingbot, Yandex vb.) olup olmadığını doğrular.
+     * Sahte User-Agent (spoofing) saldırılarını engellemek için çift yönlü DNS (Reverse + Forward DNS) doğrulaması uygular.
+     *
+     * @param string|null $ip Kontrol edilecek IP adresi (boş ise mevcut istek IP'si alınır)
+     * @param string|null $userAgent Kontrol edilecek User-Agent (boş ise mevcut istek User-Agent'ı alınır)
+     * @return bool Gerçek bir arama motoru botu ise true, aksi halde false
+     */
+    public function isLegitimateSearchBot(?string $ip = null, ?string $userAgent = null): bool
+    {
+        if ($ip === null) {
+            $rawIp = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+            $ip = is_string($rawIp) ? $rawIp : '0.0.0.0';
+            if (str_contains($ip, ',')) {
+                $ip = trim(explode(',', $ip)[0]);
+            }
+        }
+
+        if ($userAgent === null) {
+            $rawUa = $_SERVER['HTTP_USER_AGENT'] ?? '';
+            $userAgent = is_string($rawUa) ? $rawUa : '';
+        }
+
+        if ($ip === '' || $userAgent === '') {
+            return false;
+        }
+
+        /** @var array<string, array{patterns: list<string>, domains: list<string>}> $botDefinitions */
+        $botDefinitions = [
+            'google' => [
+                'patterns' => ['googlebot', 'google-inspectiontool', 'google-extended', 'adsbot-google', 'mediapartners-google'],
+                'domains'  => ['.googlebot.com', '.google.com'],
+            ],
+            'bing' => [
+                'patterns' => ['bingbot', 'msnbot', 'bingpreview', 'adidxbot'],
+                'domains'  => ['.search.msn.com', '.bing.com'],
+            ],
+            'yandex' => [
+                'patterns' => ['yandexbot', 'yandexmobilebot', 'yandexdirect', 'yandexmetrika', 'yandeximages', 'yandexvideo'],
+                'domains'  => ['.yandex.ru', '.yandex.net', '.yandex.com'],
+            ],
+            'duckduckgo' => [
+                'patterns' => ['duckduckbot'],
+                'domains'  => ['.duckduckgo.com'],
+            ],
+            'apple' => [
+                'patterns' => ['applebot'],
+                'domains'  => ['.applebot.apple.com'],
+            ],
+            'baidu' => [
+                'patterns' => ['baiduspider'],
+                'domains'  => ['.baidu.com', '.baidu.jp'],
+            ],
+            'yahoo' => [
+                'patterns' => ['slurp'],
+                'domains'  => ['.crawl.yahoo.net'],
+            ],
+            'qwant' => [
+                'patterns' => ['qwantify'],
+                'domains'  => ['.qwant.com'],
+            ],
+        ];
+
+        $lowerUa = strtolower($userAgent);
+        /** @var array{patterns: list<string>, domains: list<string>}|null $matchedBot */
+        $matchedBot = null;
+
+        foreach ($botDefinitions as $config) {
+            foreach ($config['patterns'] as $pattern) {
+                if (str_contains($lowerUa, $pattern)) {
+                    $matchedBot = $config;
+                    break 2;
+                }
+            }
+        }
+
+        if ($matchedBot === null) {
+            return false;
+        }
+
+        // Yerel test ortamları ve loopback IP'leri için
+        if ($ip === '127.0.0.1' || $ip === '::1' || str_starts_with($ip, '192.168.') || str_starts_with($ip, '10.') || str_starts_with($ip, '172.16.')) {
+            return true;
+        }
+
+        // Önbellek kontrolü (aynı bot IP'si için tekrar eden isteklerde DNS yükünü önler)
+        $cacheDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'yaknet_waf_bot_cache';
+        $cacheFile = $cacheDir . DIRECTORY_SEPARATOR . md5($ip . '_' . $lowerUa) . '.cache';
+        if (file_exists($cacheFile)) {
+            $cachedContent = @file_get_contents($cacheFile);
+            if ($cachedContent !== false && (time() - (int) $cachedContent) < 86400) {
+                return true;
+            }
+        }
+
+        // 1. Aşama: Ters DNS Sorgusu (IP -> Hostname)
+        $hostname = @gethostbyaddr($ip);
+        if ($hostname === false || $hostname === $ip) {
+            return false;
+        }
+
+        $lowerHostname = strtolower($hostname);
+        $domainValid = false;
+        foreach ($matchedBot['domains'] as $allowedDomain) {
+            if (str_ends_with($lowerHostname, $allowedDomain)) {
+                $domainValid = true;
+                break;
+            }
+        }
+
+        if (!$domainValid) {
+            return false;
+        }
+
+        // 2. Aşama: İleri DNS Sorgusu (Hostname -> IP)
+        $resolvedIp = @gethostbyname($hostname);
+        if ($resolvedIp !== $ip) {
+            return false;
+        }
+
+        // Doğrulanmış botu önbelleğe yaz
+        if (!is_dir($cacheDir)) {
+            @mkdir($cacheDir, 0755, true);
+        }
+        @file_put_contents($cacheFile, (string) time());
+
+        return true;
+    }
+
+    /**
      * WAF isteğini YakNet Auth WAF servisi üzerinden denetler.
      *
      * @param array<string, mixed> $customParams Opsiyonel özel denetim parametreleri.
@@ -234,8 +361,6 @@ class YaCaptcha
             return $this->mockResponse;
         }
 
-        $url = $this->baseUrl . '/api/yacaptcha/waf-check';
-
         $rawIp = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
         $ip = is_string($rawIp) ? $rawIp : '0.0.0.0';
         if (str_contains($ip, ',')) {
@@ -245,6 +370,15 @@ class YaCaptcha
         $userAgent = is_string($_SERVER['HTTP_USER_AGENT'] ?? null) ? $_SERVER['HTTP_USER_AGENT'] : '';
         $uri = is_string($_SERVER['REQUEST_URI'] ?? null) ? $_SERVER['REQUEST_URI'] : '';
         $method = is_string($_SERVER['REQUEST_METHOD'] ?? null) ? $_SERVER['REQUEST_METHOD'] : 'GET';
+
+        $allowSearchBots = isset($customParams['allow_search_bots']) ? (bool) $customParams['allow_search_bots'] : true;
+        unset($customParams['allow_search_bots']);
+
+        if ($allowSearchBots && $this->isLegitimateSearchBot($ip, $userAgent)) {
+            return ['action' => 'allow', 'threat_score' => 0, 'is_search_bot' => true, 'detected_threats' => []];
+        }
+
+        $url = $this->baseUrl . '/api/yacaptcha/waf-check';
 
         $params = array_merge([
             'client_id'     => $this->clientId,
@@ -314,6 +448,20 @@ class YaCaptcha
             $ip = trim(explode(',', $ip)[0]);
         }
         $clearanceToken = md5($this->clientId . '_' . $ip);
+
+        $rawUa = $_SERVER['HTTP_USER_AGENT'] ?? null;
+        $userAgent = is_string($rawUa) ? $rawUa : '';
+
+        $allowSearchBots = isset($customParams['allow_search_bots']) ? (bool) $customParams['allow_search_bots'] : true;
+
+        if ($allowSearchBots && $this->isLegitimateSearchBot($ip, $userAgent)) {
+            return [
+                'action' => 'allow',
+                'threat_score' => 0,
+                'is_search_bot' => true,
+                'detected_threats' => [],
+            ];
+        }
 
         // Auto Reverse Proxy for yaCAPTCHA Challenge (MEB & Strict Firewalls Bypass)
         if (isset($_GET['yak_captcha_challenge']) && $_GET['yak_captcha_challenge'] === '1') {

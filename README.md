@@ -112,6 +112,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 ---
 
+### 3. Cloud WAF Auto-Protection & Search Engine Bot Bypass
+
+You can protect your entire application by calling `autoProtect()` at the application entrypoint (e.g. `index.php`).
+
+```php
+use YakNet\YaCaptcha\YaCaptcha;
+
+$yaCaptcha = new YaCaptcha(
+    getenv('YACAPTCHA_CLIENT_ID') ?: '',
+    getenv('YACAPTCHA_CLIENT_SECRET') ?: '',
+    getenv('YACAPTCHA_BASE_URL') ?: 'https://developer-console.yakhub.com.tr'
+);
+
+// Protect the application automatically
+// Search engine bots (Googlebot, Bingbot, Yandex, etc.) are automatically verified via 2-way DNS and allowed to index
+$yaCaptcha->autoProtect('My App Title', [
+    'allow_search_bots' => true // default: true
+]);
+```
+
+#### Verified Search Engine Bot Detection
+
+The SDK includes built-in two-way DNS (Reverse + Forward DNS) verification:
+
+```php
+// Check if an IP / User-Agent pair is a genuine, verified search bot
+if ($yaCaptcha->isLegitimateSearchBot($ip, $userAgent)) {
+    // Legitimate Googlebot, Bingbot, YandexBot, DuckDuckBot, etc.
+}
+```
+
+---
+
 ## Testing
 
 Run unit tests via PHPUnit:

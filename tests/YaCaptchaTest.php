@@ -114,4 +114,36 @@ class YaCaptchaTest extends TestCase
         $res = $client->autoProtect('Test Servis');
         $this->assertEquals('allow', $res['action']);
     }
+
+    public function testIsLegitimateSearchBotWithGooglebot(): void
+    {
+        $client = new YaCaptcha('client-123', 'secret-abc');
+        $this->assertTrue($client->isLegitimateSearchBot('66.249.66.1', 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'));
+    }
+
+    public function testIsLegitimateSearchBotWithSpoofedIp(): void
+    {
+        $client = new YaCaptcha('client-123', 'secret-abc');
+        $this->assertFalse($client->isLegitimateSearchBot('1.1.1.1', 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'));
+    }
+
+    public function testIsLegitimateSearchBotWithRegularUserAgent(): void
+    {
+        $client = new YaCaptcha('client-123', 'secret-abc');
+        $this->assertFalse($client->isLegitimateSearchBot('66.249.66.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0'));
+    }
+
+    public function testAutoProtectAllowsLegitimateSearchBot(): void
+    {
+        $client = new YaCaptcha('client-123', 'secret-abc');
+        $client->setMockResponse(['action' => 'challenge', 'threat_score' => 80]);
+
+        $_SERVER['REMOTE_ADDR'] = '66.249.66.1';
+        $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
+
+        $res = $client->autoProtect('Test Servis');
+        $this->assertEquals('allow', $res['action']);
+        $this->assertTrue($res['is_search_bot'] ?? false);
+    }
 }
+
