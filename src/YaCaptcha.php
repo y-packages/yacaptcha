@@ -231,7 +231,7 @@ class YaCaptcha
     public function isLegitimateSearchBot(?string $ip = null, ?string $userAgent = null): bool
     {
         if ($ip === null) {
-            $rawIp = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+            $rawIp = $_SERVER['HTTP_CF_CONNECTING_IP'] ?? $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
             $ip = is_string($rawIp) ? $rawIp : '0.0.0.0';
             if (str_contains($ip, ',')) {
                 $ip = trim(explode(',', $ip)[0]);
@@ -247,44 +247,52 @@ class YaCaptcha
             return false;
         }
 
-        /** @var array<string, array{patterns: list<string>, domains: list<string>}> $botDefinitions */
+        /** @var array<string, array{patterns: list<string>, domains: list<string>, prefixes: list<string>}> $botDefinitions */
         $botDefinitions = [
             'google' => [
                 'patterns' => ['googlebot', 'google-inspectiontool', 'google-extended', 'adsbot-google', 'mediapartners-google'],
                 'domains'  => ['.googlebot.com', '.google.com'],
+                'prefixes' => ['66.249.', '2001:4860:4801:'],
             ],
             'bing' => [
                 'patterns' => ['bingbot', 'msnbot', 'bingpreview', 'adidxbot'],
                 'domains'  => ['.search.msn.com', '.bing.com'],
+                'prefixes' => ['40.77.', '157.55.', '207.46.', '52.167.'],
             ],
             'yandex' => [
                 'patterns' => ['yandexbot', 'yandexmobilebot', 'yandexdirect', 'yandexmetrika', 'yandeximages', 'yandexvideo'],
                 'domains'  => ['.yandex.ru', '.yandex.net', '.yandex.com'],
+                'prefixes' => ['5.255.', '77.88.', '87.250.', '95.108.', '141.8.', '178.154.', '213.180.', '2a02:6b8:'],
             ],
             'duckduckgo' => [
                 'patterns' => ['duckduckbot'],
                 'domains'  => ['.duckduckgo.com'],
+                'prefixes' => [],
             ],
             'apple' => [
                 'patterns' => ['applebot'],
                 'domains'  => ['.applebot.apple.com'],
+                'prefixes' => ['17.'],
             ],
             'baidu' => [
                 'patterns' => ['baiduspider'],
                 'domains'  => ['.baidu.com', '.baidu.jp'],
+                'prefixes' => [],
             ],
             'yahoo' => [
                 'patterns' => ['slurp'],
                 'domains'  => ['.crawl.yahoo.net'],
+                'prefixes' => [],
             ],
             'qwant' => [
                 'patterns' => ['qwantify'],
                 'domains'  => ['.qwant.com'],
+                'prefixes' => [],
             ],
         ];
 
         $lowerUa = strtolower($userAgent);
-        /** @var array{patterns: list<string>, domains: list<string>}|null $matchedBot */
+        /** @var array{patterns: list<string>, domains: list<string>, prefixes: list<string>}|null $matchedBot */
         $matchedBot = null;
 
         foreach ($botDefinitions as $config) {
@@ -311,6 +319,18 @@ class YaCaptcha
         if (file_exists($cacheFile)) {
             $cachedContent = @file_get_contents($cacheFile);
             if ($cachedContent !== false && (time() - (int) $cachedContent) < 86400) {
+                return true;
+            }
+        }
+
+        // Resmi IPv6 ve IPv4 veri merkezi blokları kontrolü (Windows IPv6 PTR kısıtlamalarını aşmak için)
+        $lowerIp = strtolower($ip);
+        foreach ($matchedBot['prefixes'] as $prefix) {
+            if (str_starts_with($lowerIp, $prefix)) {
+                if (!is_dir($cacheDir)) {
+                    @mkdir($cacheDir, 0755, true);
+                }
+                @file_put_contents($cacheFile, (string) time());
                 return true;
             }
         }
@@ -361,7 +381,7 @@ class YaCaptcha
             return $this->mockResponse;
         }
 
-        $rawIp = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $rawIp = $_SERVER['HTTP_CF_CONNECTING_IP'] ?? $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
         $ip = is_string($rawIp) ? $rawIp : '0.0.0.0';
         if (str_contains($ip, ',')) {
             $ip = trim(explode(',', $ip)[0]);
@@ -442,7 +462,7 @@ class YaCaptcha
      */
     public function autoProtect(string $siteName = 'Korunan Web Sitesi', array $customParams = []): array
     {
-        $rawIp = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $rawIp = $_SERVER['HTTP_CF_CONNECTING_IP'] ?? $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
         $ip = is_string($rawIp) ? $rawIp : '0.0.0.0';
         if (str_contains($ip, ',')) {
             $ip = trim(explode(',', $ip)[0]);
